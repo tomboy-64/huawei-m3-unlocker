@@ -5,8 +5,11 @@ use std::process::Command;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::{Acquire, SeqCst};
 use std::sync::Arc;
+use std::time::Instant;
 
 fn main() {
+    let total_time = Instant::now();
+    let total_time_ctrlc = Instant::now();
     let base_start: Arc<AtomicU64> = Arc::new(AtomicU64::new(1000000000000000));
 
     handle_args(env::args().collect(), base_start.clone());
@@ -15,17 +18,19 @@ fn main() {
     ctrlc::set_handler(move || {
         println!("Received Ctrl-C.");
         print!("Saving current code {} ...", cd_num.load(Acquire));
-        match saver(cd_num.clone()) {
+        match saver(cd_num.load(Acquire)) {
             Ok(_) => println!(" successful."),
             Err(e) => println!(" failed: {:?}", e),
         }
 
         println!("Exiting.");
+        print_total_time(total_time_ctrlc);
         std::process::exit(0)
     })
     .expect("Error setting Ctrl-C handler.");
 
     let mut stdout: Option<[String; 2]> = None;
+    let mut before = Instant::now();
 
     loop {
         let code = base_start.load(Acquire).to_string();
@@ -46,10 +51,16 @@ fn main() {
             })
             .collect::<Vec<String>>();
 
+        let new_instant = Instant::now();
         println!(
-            "code: {}, {}, stdout: {}, stderr: {}",
-            code, output.status, o_s[0], o_s[1],
+            "code: {}, {}, stdout: {}, stderr: {}, elapsed: {}ms",
+            code,
+            output.status,
+            o_s[0],
+            o_s[1],
+            new_instant.duration_since(before).as_millis()
         );
+        before = new_instant;
 
         // if output status is success: break
         if output.status.success() {
@@ -69,6 +80,8 @@ fn main() {
         base_start.fetch_add(1, Acquire);
     }
 
+    saver(base_start.load(Acquire));
+    print_total_time(total_time);
     println!("Current code: {}", base_start.load(Acquire));
 }
 
@@ -109,9 +122,9 @@ fn resumer(base_start: Arc<AtomicU64>) -> std::io::Result<()> {
     Ok(())
 }
 
-fn saver(base_start: Arc<AtomicU64>) -> std::io::Result<()> {
+fn saver(base_start: u64) -> std::io::Result<()> {
     let mut f = File::create("lastcode")?;
-    f.write_all(base_start.load(Acquire).to_string().as_bytes())?;
+    f.write_all(base_start.to_string().as_bytes())?;
 
     Ok(())
 }
@@ -120,8 +133,27 @@ fn help_text() {
     println!("This tool is supposed to unlock a Huawei MediaPad M3.");
     println!("Run it with exactly 1 argument to start with an offset other than 1000000000000000.");
     println!("Else it tries to load the previously used offset from 'lastcode' in $PWD.");
-    println!("");
+    println!();
     println!("Fuck Huawei for leaving us out in the rain.");
 
     std::process::exit(0);
+}
+
+fn print_total_time(start: Instant) {
+    let times = [60u64, 60, 24, 7, 1]
+        .iter()
+        .scan(
+            Instant::now().duration_since(start).as_secs(),
+            |state, d| {
+                let r = *state % *d;
+                *state /= *d;
+                Some(r)
+            },
+        )
+        .collect::<Vec<_>>();
+
+    println!(
+        "I've been running for {}w {}d {}h {}m {}s",
+        times[4], times[3], times[2], times[1], times[0]
+    );
 }
