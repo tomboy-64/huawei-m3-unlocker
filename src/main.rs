@@ -25,9 +25,9 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler.");
 
-    let mut status = false;
+    let mut stdout: Option<(String,String)> = None;
 
-    while !status {
+    loop {
         let code = base_start.load(Acquire).to_string();
         let output = Command::new("/usr/bin/fastboot")
             .args(&["oem", "unlock"])
@@ -35,14 +35,37 @@ fn main() {
             .output()
             .expect("failed to execute");
 
-        println!("code: {}, {}", code, output.status);
-        status = output.status.success();
+        let o_stdout = output.stdout.iter().map(|b| *b as char).collect::<String>().trim().to_string();
+        let o_stderr = output.stderr.iter().map(|b| *b as char).collect::<String>().trim().to_string();
+
+        println!("code: {}, {}, stdout: {}, stderr: {}",
+                 code,
+                 output.status,
+                 o_stdout,
+                 o_stderr,
+        );
+
+        // if output status is success: break
+        if output.status.success() {
+            println!("Received success exit code. Halting.");
+            break
+        }
+        // if output strings change: break <- pretty hacky. but in case?
+        if let Some(previous) = stdout {
+            if &previous.0 != &o_stdout ||
+                &previous.1 != &o_stderr
+            {
+                println!("Output string changed! Halting.");
+                break
+            }
+        }
+        stdout = Some((o_stdout.to_string(), o_stderr.to_string()));
 
         base_start.fetch_add(1, Acquire);
     }
 
     println!(
-        "Just received a success exit code for code: {}",
+        "Current code: {}",
         base_start.load(Acquire)
     );
 }
