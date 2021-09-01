@@ -80,7 +80,11 @@ fn main() {
         base_start.fetch_add(1, Acquire);
     }
 
-    saver(base_start.load(Acquire));
+    print!("Storing last used code {} ... ", base_start.load(Acquire));
+    match saver(base_start.load(Acquire)) {
+        Ok(_) => println!("success."),
+        Err(e) => println!("failed: {}", e),
+    }
     print_total_time(total_time);
     println!("Current code: {}", base_start.load(Acquire));
 }
@@ -152,8 +156,28 @@ fn print_total_time(start: Instant) {
         )
         .collect::<Vec<_>>();
 
+    let date = {
+        match Command::new("date").output() {
+            Ok(d) => {
+                let mut s = "at ".to_string();
+                s.push_str(
+                    &d.stdout
+                        .iter()
+                        .map(|b| *b as char)
+                        .collect::<String>()
+                        .trim()
+                        .to_string(),
+                );
+                s
+            }
+            // okay, so we don't have `date` available.
+            // let's be snarky about that.
+            Err(_) => "a while back.".to_string(),
+        }
+    };
+
     println!(
-        "I've been running for {}w {}d {}h {}m {}s",
-        times[4], times[3], times[2], times[1], times[0]
+        "I've been running for {}w {}d {}h {}m {}s. This program finished {}.",
+        times[4], times[3], times[2], times[1], times[0], date
     );
 }
