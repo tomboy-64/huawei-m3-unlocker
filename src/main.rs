@@ -25,7 +25,7 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler.");
 
-    let mut stdout: Option<(String,String)> = None;
+    let mut stdout: Option<[String; 2]> = None;
 
     loop {
         let code = base_start.load(Acquire).to_string();
@@ -35,39 +35,41 @@ fn main() {
             .output()
             .expect("failed to execute");
 
-        let o_stdout = output.stdout.iter().map(|b| *b as char).collect::<String>().trim().to_string();
-        let o_stderr = output.stderr.iter().map(|b| *b as char).collect::<String>().trim().to_string();
+        let o_s = [output.stdout, output.stderr]
+            .iter()
+            .map(|v| {
+                v.iter()
+                    .map(|b| *b as char)
+                    .collect::<String>()
+                    .trim()
+                    .to_string()
+            })
+            .collect::<Vec<String>>();
 
-        println!("code: {}, {}, stdout: {}, stderr: {}",
-                 code,
-                 output.status,
-                 o_stdout,
-                 o_stderr,
+        println!(
+            "code: {}, {}, stdout: {}, stderr: {}",
+            code, output.status, o_s[0], o_s[1],
         );
 
         // if output status is success: break
         if output.status.success() {
             println!("Received success exit code. Halting.");
-            break
+            break;
         }
         // if output strings change: break <- pretty hacky. but in case?
         if let Some(previous) = stdout {
-            if &previous.0 != &o_stdout ||
-                &previous.1 != &o_stderr
-            {
+            if &previous != &o_s[..2] {
                 println!("Output string changed! Halting.");
-                break
+                break;
             }
         }
-        stdout = Some((o_stdout.to_string(), o_stderr.to_string()));
+
+        stdout = Some([o_s[0].clone(), o_s[1].clone()]);
 
         base_start.fetch_add(1, Acquire);
     }
 
-    println!(
-        "Current code: {}",
-        base_start.load(Acquire)
-    );
+    println!("Current code: {}", base_start.load(Acquire));
 }
 
 fn handle_args(args: Vec<String>, base_start: Arc<AtomicU64>) {
